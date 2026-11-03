@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://github.com/DucHiep2517/deloyment-k3s.git
     targetRevision: main
-    path: apps/app-customer-service
+    path: apps
 
   destination:
     server: https://kubernetes.default.svc
