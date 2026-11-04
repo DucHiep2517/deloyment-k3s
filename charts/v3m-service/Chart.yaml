@@ -1,0 +1,10 @@
+apiVersion: v2
+name: v3m-service
+description: Helm chart cho v3m-service (app-customer-service, Spring Boot)
+type: application
+
+# Phiên bản của chart: tăng khi sửa template hoặc values.yaml
+version: 0.1.0
+
+# Phiên bản app (image tag mặc định nếu values.yaml không ghi image.tag)
+appVersion: "1.0.0"

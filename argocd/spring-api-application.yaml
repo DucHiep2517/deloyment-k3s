@@ -13,7 +13,11 @@ spec:
   source:
     repoURL: https://github.com/DucHiep2517/deloyment-k3s.git
     targetRevision: main
-    path: apps
+    # Helm chart của app (Argo CD tự nhận ra Helm nhờ Chart.yaml)
+    path: charts/v3m-service
+    helm:
+      valueFiles:
+        - values.yaml
 
   destination:
     server: https://kubernetes.default.svc
