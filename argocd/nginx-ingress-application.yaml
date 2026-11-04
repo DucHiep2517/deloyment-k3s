@@ -1,0 +1,43 @@
+# deloyment-k3s
+# NGINX Ingress Controller (bản của F5/NGINX: github.com/nginx/kubernetes-ingress),
+# thay cho Traefik mặc định của k3s. Tạo IngressClass "nginx".
+# Áp dụng một lần: kubectl apply -f argocd/nginx-ingress-application.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+
+metadata:
+  name: nginx-ingress
+  namespace: argocd
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://helm.nginx.com/stable
+    chart: nginx-ingress
+    targetRevision: 2.8.0
+    helm:
+      releaseName: nginx-ingress
+      valuesObject:
+        controller:
+          ingressClass:
+            name: nginx
+            # Ingress không ghi ingressClassName cũng do nginx xử lý (giống Traefik trước đây)
+            setAsDefaultIngress: true
+          service:
+            type: LoadBalancer
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nginx-ingress
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+    syncOptions:
+      - CreateNamespace=true
+      # CRD của chart rất lớn, apply phía client sẽ vượt giới hạn annotation
+      - ServerSideApply=true
