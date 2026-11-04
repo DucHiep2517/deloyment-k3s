@@ -30,11 +30,17 @@ spec:
               containerPort: 9092
               protocol: TCP
 
+          # Java 11 mặc định chỉ lấy 25% memory limit làm heap -> app bị OutOfMemoryError.
+          # Cho heap dùng 60% limit (~1.2Gi), phần còn lại cho metaspace, threads...
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=60.0"
+
           resources:
             requests:
               cpu: 250m
-              memory: 512Mi
+              memory: 1Gi
 
             limits:
               cpu: 1000m
-              memory: 1Gi
+              memory: 2Gi
