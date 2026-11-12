@@ -1,34 +1,53 @@
-# Giá trị mặc định cho chart v3m-service.
-# Muốn đổi cấu hình (image, số pod, bộ nhớ, hostname...) thì sửa ở đây, không cần đụng templates/.
+# Giá trị mặc định cho mọi service dùng chart spring-service.
+# Đừng sửa file này cho một service cụ thể: ghi đè trong services/<tên>/values.yaml.
 
-# Tên dùng cho Deployment, Service, Ingress và label "app". Để trống = tên chart (v3m-service).
-# Lưu ý: đổi tên này sẽ đổi selector của Deployment (trường không sửa được) -> phải xoá Deployment cũ.
+# Tên dùng cho Deployment, Service, Ingress và label "app".
+# Để trống = release name = tên thư mục trong services/ (ApplicationSet đặt sẵn).
+# Lưu ý: đổi tên sẽ đổi selector của Deployment (trường không sửa được) -> phải xoá Deployment cũ.
 fullnameOverride: ""
 
-replicaCount: 2
+replicaCount: 1
 
 image:
-  repository: app-customer-service
+  # Bắt buộc khai báo trong values của service
+  repository: ""
   # Để trống thì dùng appVersion trong Chart.yaml
-  tag: "1.0.0"
+  tag: ""
   pullPolicy: IfNotPresent
 
-# Cổng app Spring Boot lắng nghe trong container
-containerPort: 9092
+# Cổng app Spring Boot lắng nghe trong container (server.port)
+containerPort: 8080
 
-# Java 11 mặc định chỉ lấy 25% memory limit làm heap -> app bị OutOfMemoryError.
-# Cho heap dùng 60% limit (~1.2Gi), phần còn lại cho metaspace, threads...
+# Java mặc định chỉ lấy 25% memory limit làm heap -> dễ OutOfMemoryError.
+# Cho heap dùng 60% limit, phần còn lại cho metaspace, threads...
 env:
   - name: JAVA_TOOL_OPTIONS
     value: "-XX:MaxRAMPercentage=60.0"
 
 resources:
   requests:
-    cpu: 250m
-    memory: 1Gi
+    cpu: 100m
+    memory: 512Mi
   limits:
     cpu: 1000m
-    memory: 2Gi
+    memory: 1Gi
+
+# Health check. Để {} = không dùng probe.
+# Ví dụ với Spring Boot Actuator (app phải có dependency spring-boot-starter-actuator):
+#   startupProbe:            # cho app tối đa 30 x 5s = 150s để khởi động
+#     httpGet: { path: /actuator/health, port: http }
+#     periodSeconds: 5
+#     failureThreshold: 30
+#   readinessProbe:          # chưa sẵn sàng -> Service không gửi request vào pod
+#     httpGet: { path: /actuator/health, port: http }
+#     periodSeconds: 10
+#   livenessProbe:           # treo -> kubelet restart container
+#     httpGet: { path: /actuator/health, port: http }
+#     periodSeconds: 20
+#     failureThreshold: 3
+startupProbe: {}
+readinessProbe: {}
+livenessProbe: {}
 
 service:
   type: ClusterIP
@@ -38,6 +57,7 @@ ingress:
   enabled: true
   # NGINX Ingress Controller (cài bởi argocd/nginx-ingress-application.yaml)
   className: nginx
-  host: v3m.localhost
+  # Để trống = <tên service>.localhost, truy cập qua http://<tên service>.localhost:8080
+  host: ""
   path: /
   pathType: Prefix

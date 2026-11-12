@@ -2,26 +2,26 @@ apiVersion: apps/v1
 kind: Deployment
 
 metadata:
-  name: {{ include "v3m-service.fullname" . }}
+  name: {{ include "spring-service.fullname" . }}
   labels:
-    {{- include "v3m-service.labels" . | nindent 4 }}
+    {{- include "spring-service.labels" . | nindent 4 }}
 
 spec:
   replicas: {{ .Values.replicaCount }}
 
   selector:
     matchLabels:
-      {{- include "v3m-service.selectorLabels" . | nindent 6 }}
+      {{- include "spring-service.selectorLabels" . | nindent 6 }}
 
   template:
     metadata:
       labels:
-        {{- include "v3m-service.selectorLabels" . | nindent 8 }}
+        {{- include "spring-service.selectorLabels" . | nindent 8 }}
 
     spec:
       containers:
-        - name: {{ include "v3m-service.fullname" . }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        - name: {{ include "spring-service.fullname" . }}
+          image: "{{ required "image.repository là bắt buộc trong services/<tên>/values.yaml" .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
 
           ports:
@@ -36,5 +36,20 @@ spec:
 
           {{- with .Values.resources }}
           resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}

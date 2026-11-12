@@ -1,25 +1,32 @@
 {{/*
-Tên chung cho mọi tài nguyên. Cố ý không dùng .Release.Name để tên luôn là "v3m-service"
-dù Argo CD đặt release name là gì -> không đổi tên Service (DNS) và selector của Deployment.
+Tên chung cho mọi tài nguyên của một service. Mặc định là release name,
+ApplicationSet đặt release name = tên thư mục trong services/ -> tên service = tên thư mục.
 */}}
-{{- define "v3m-service.fullname" -}}
-{{- default .Chart.Name .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- define "spring-service.fullname" -}}
+{{- default .Release.Name .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Label dùng để chọn pod (selector của Deployment và Service).
 Selector của Deployment không sửa được sau khi tạo, nên chỉ giữ đúng một label "app".
 */}}
-{{- define "v3m-service.selectorLabels" -}}
-app: {{ include "v3m-service.fullname" . }}
+{{- define "spring-service.selectorLabels" -}}
+app: {{ include "spring-service.fullname" . }}
 {{- end }}
 
 {{/*
 Label gắn vào metadata của Deployment, Service, Ingress.
 */}}
-{{- define "v3m-service.labels" -}}
-{{ include "v3m-service.selectorLabels" . }}
+{{- define "spring-service.labels" -}}
+{{ include "spring-service.selectorLabels" . }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Host của Ingress: ingress.host nếu có, không thì <tên service>.localhost.
+*/}}
+{{- define "spring-service.host" -}}
+{{- .Values.ingress.host | default (printf "%s.localhost" (include "spring-service.fullname" .)) }}
 {{- end }}
