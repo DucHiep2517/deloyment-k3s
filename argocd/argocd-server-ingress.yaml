@@ -1,0 +1,36 @@
+# deloyment-k3s
+# Mở giao diện Argo CD ra ngoài qua NGINX Ingress: http://argocd.localhost:8080
+# (cổng 8080 của máy = cổng 80 của k3d loadbalancer -> nginx-ingress-controller).
+# Áp dụng một lần: kubectl apply -f argocd/argocd-server-ingress.yaml
+#
+# argocd-server vẫn giữ TLS (không bật server.insecure), nên cách cũ vẫn dùng được:
+#   kubectl port-forward svc/argocd-server -n argocd 8081:443   -> https://localhost:8081
+#
+# Đăng nhập: user "admin", mật khẩu lấy bằng
+#   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    # argocd-server chỉ phục vụ HTTPS (HTTP sẽ bị redirect) -> NGINX gọi vào bằng HTTPS
+    nginx.org/ssl-services: "argocd-server"
+    # UI nhận trạng thái app qua stream, tắt buffer để cập nhật ngay
+    nginx.org/proxy-buffering: "false"
+
+spec:
+  ingressClassName: nginx
+
+  rules:
+    - host: argocd.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  name: https
