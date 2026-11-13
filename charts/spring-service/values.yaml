@@ -63,3 +63,9 @@ ingress:
   host: ""
   path: /
   pathType: Prefix
+  # Annotation của NGINX cho Ingress này, ví dụ nginx.org/ssl-redirect: "false"
+  annotations: {}
+  # HTTPS: tên Secret kiểu kubernetes.io/tls (cùng namespace) chứa cert cho host.
+  # Để trống = chỉ HTTP. Secret tạo bằng kubectl, không lưu trong Git.
+  tls:
+    secretName: ""

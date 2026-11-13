@@ -4,7 +4,7 @@ description: Helm chart dùng chung cho các service (Spring Boot, .NET...). Umb
 type: application
 
 # Phiên bản của chart: tăng khi sửa template hoặc values.yaml mặc định
-version: 0.4.0
+version: 0.5.0
 
 # Chart dùng chung nên không gắn với app nào; mỗi service tự khai báo image.tag
 appVersion: "1.0.0"

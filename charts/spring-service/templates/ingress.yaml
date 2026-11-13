@@ -7,9 +7,21 @@ metadata:
   name: {{ include "spring-service.fullname" . }}
   labels:
     {{- include "spring-service.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 
 spec:
   ingressClassName: {{ .Values.ingress.className }}
+
+  {{- if .Values.ingress.tls.secretName }}
+  # HTTPS: NGINX giải mã TLS bằng cert trong Secret, rồi gọi vào Service bằng HTTP
+  tls:
+    - hosts:
+        - {{ include "spring-service.host" . | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
 
   rules:
     - host: {{ include "spring-service.host" . | quote }}

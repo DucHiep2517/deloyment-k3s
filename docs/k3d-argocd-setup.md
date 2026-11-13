@@ -14,7 +14,7 @@ Tài liệu này có 2 luồng:
 | Argo CD | `v3.5.7`, namespace `argocd` |
 | Argo CD Applications | `nginx-ingress` (Helm chart từ `helm.nginx.com/stable`) và một Application cho mỗi hệ thống trong `apps/` (`v3m`, `hr-backend`, `questlab`), do ApplicationSet `apps` sinh ra |
 | Argo CD UI | <http://argocd.localhost:8080> |
-| Cửa vào các hệ thống | `v3m`: <http://gateway.localhost:8080>, `hr-backend`: <http://hr.localhost:8080>, `questlab`: <http://questlab.localhost:8080> |
+| Cửa vào các hệ thống | `v3m`: <http://gateway.localhost:8080> và <https://gateway.localhost:8443> (TLS, [xem mục HTTPS](#https-tls-cho-cửa-vào)), `hr-backend`: <http://hr.localhost:8080>, `questlab`: <http://questlab.localhost:8080> |
 
 Cấu trúc repo:
 
@@ -35,9 +35,9 @@ deloyment-k3s/
 Đường đi của request:
 
 ```
-Trình duyệt :8080
-  -> k3d-dev-cluster-serverlb :80        (container Docker, map cổng ra máy)
-  -> nginx-ingress-controller            (namespace nginx-ingress)
+Trình duyệt :8080 (HTTP) / :8443 (HTTPS)
+  -> k3d-dev-cluster-serverlb :80 / :443 (container Docker, map cổng ra máy)
+  -> nginx-ingress-controller            (namespace nginx-ingress; HTTPS được giải mã tại đây)
        Host argocd.localhost   -> svc/argocd-server:443      (namespace argocd)
        Host gateway.localhost  -> svc/gateway-server:80      (namespace v3m)
        Host hr.localhost       -> svc/hr-be:80               (namespace hr-backend)
@@ -295,6 +295,8 @@ Gateway mất kết nối khoảng 30 giây, trong lúc Spring Boot khởi độ
 
 `hr-backend` và `questlab` sẽ báo `ImagePullBackOff` cho tới khi build và import image (xem [build-docker-image.md](build-docker-image.md)).
 
+Namespace `v3m` mới nên chưa có Secret `gateway-tls`: tạo lại theo [mục HTTPS](#https-tls-cho-cửa-vào) để bật HTTPS cho gateway.
+
 ### Thêm service vào một hệ thống
 
 Ví dụ thêm `order-service` vào `v3m`:
@@ -400,6 +402,8 @@ Ghi đè trong mục của service trong `apps/<hệ thống>/values.yaml` nếu
 | `env` | `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60.0` |
 | `startupProbe` / `readinessProbe` / `livenessProbe` | Tắt. Ví dụ bật với Actuator có sẵn trong `charts/spring-service/values.yaml` |
 | `ingress.enabled` | `false` (nội bộ). Bật lên thì `ingress.host` mặc định là `<tên service>.localhost` |
+| `ingress.annotations` | `{}`. Annotation của NGINX cho Ingress, ví dụ `nginx.org/ssl-redirect: "false"` |
+| `ingress.tls.secretName` | `""` (chỉ HTTP). Đặt tên Secret TLS thì bật HTTPS, xem [mục HTTPS](#https-tls-cho-cửa-vào) |
 
 Lưu ý:
 
@@ -407,6 +411,73 @@ Lưu ý:
 - Xoá dependency (và mục values) rồi push thì Argo CD xoá service đó khỏi cluster.
 - Các service trong cùng hệ thống chung một Application: một service cấu hình sai (không render được) thì cả hệ thống đó báo lỗi và **không service nào** của nó được sync cho tới khi sửa xong. Các hệ thống khác không bị ảnh hưởng.
 - 3 node k3d dùng chung RAM của Docker Desktop, dù mỗi node báo có 8 GiB riêng. Kubernetes không chặn khi tổng RAM vượt quá, nên phải tự theo dõi bằng `kubectl top nodes`.
+
+### HTTPS (TLS) cho cửa vào
+
+`gateway-server` nhận cả HTTP và HTTPS:
+
+```
+https://gateway.localhost:8443 -> NGINX giải mã TLS (cert trong Secret gateway-tls) -> http://gateway-server:80 -> pod :9095
+http://gateway.localhost:8080  -> NGINX                                            -> http://gateway-server:80 -> pod :9095
+```
+
+TLS kết thúc ở NGINX, app vẫn chạy HTTP như cũ nên không phải sửa code hay cấu hình app.
+
+Cấu hình trong `apps/v3m/values.yaml`:
+
+```yaml
+gateway-server:
+  ingress:
+    enabled: true
+    host: gateway.localhost
+    tls:
+      secretName: gateway-tls            # Secret TLS cùng namespace v3m
+    annotations:
+      nginx.org/ssl-redirect: "false"    # giữ HTTP 8080 song song HTTPS
+```
+
+Không bật chuyển hướng HTTP sang HTTPS: NGINX sẽ chuyển sang `https://gateway.localhost` (cổng 443), mà máy chỉ map cổng `8443` vào cổng 443 của cluster nên sẽ không vào được.
+
+**Cert và Secret.** Cert hiện tại là cert tự ký, tạo bằng openssl, có hạn tới 02/2029. File nằm trong `certs/` ở máy local. Thư mục này có trong `.gitignore` vì chứa private key, nên **không có trên GitHub**. Secret cũng tạo bằng `kubectl`, không nằm trong Git, nên Argo CD không quản lý và không xoá nó:
+
+```bash
+# Tạo cert (chỉ làm lại khi mất thư mục certs/ hoặc cert hết hạn)
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes \
+  -keyout certs/gateway.localhost.key -out certs/gateway.localhost.crt \
+  -subj "/CN=gateway.localhost" -addext "subjectAltName=DNS:gateway.localhost"
+
+# Tạo Secret (làm lại sau khi xoá namespace v3m hoặc dựng cluster mới)
+kubectl -n v3m create secret tls gateway-tls \
+  --cert=certs/gateway.localhost.crt --key=certs/gateway.localhost.key
+
+# Thay cert trong Secret đã có
+kubectl -n v3m create secret tls gateway-tls \
+  --cert=certs/gateway.localhost.crt --key=certs/gateway.localhost.key \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Thiếu Secret (dựng cluster mới, xoá namespace `v3m`…) thì HTTP vẫn chạy, nhưng NGINX từ chối HTTPS cho host đó. Tạo lại Secret theo lệnh trên là được, không phải sửa Git.
+
+Kiểm tra:
+
+```bash
+# Tin đúng cert tự ký này (không cần -k)
+curl --cacert certs/gateway.localhost.crt https://gateway.localhost:8443/actuator/health
+
+# Xem cert NGINX đang trả về
+openssl s_client -connect localhost:8443 -servername gateway.localhost </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -dates
+```
+
+Trình duyệt sẽ báo "Not secure" vì cert tự ký, bấm bỏ qua để vào. Muốn hết cảnh báo thì cho macOS tin cert này:
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain certs/gateway.localhost.crt
+```
+
+Bật HTTPS cho cửa vào của hệ thống khác (ví dụ `hr.localhost`) làm tương tự: tạo cert với `CN`/`subjectAltName` là host đó, tạo Secret trong namespace của hệ thống, rồi thêm `ingress.tls.secretName` và annotation vào mục của service.
 
 ### Ra phiên bản mới cho một service
 
@@ -452,6 +523,8 @@ kubectl -n argocd annotate applicationset apps \
 | Pod restart liên tục, `OOMKilled` | Thiếu RAM | Tăng RAM cho Docker Desktop; xem `resources` và `JAVA_TOOL_OPTIONS` trong `values.yaml` |
 | Application báo `image.repository là bắt buộc` | Có dependency trong `Chart.yaml` mà thiếu mục cùng tên trong `values.yaml` (thường do gõ sai alias) | Đối chiếu alias với tên mục trong `values.yaml` |
 | Application `spring-app` báo `app path does not exist` | Cấu trúc cũ, thư mục `services/` đã bị xoá | Làm theo mục [Chuyển cluster từ cấu trúc cũ](#chuyển-cluster-từ-cấu-trúc-cũ-spring-app-sang-apps) |
+| `https://gateway.localhost:8443` lỗi handshake (`unrecognized name`, `SSL_ERROR...`) | Ingress chưa có `tls`, hoặc thiếu Secret `gateway-tls` trong namespace `v3m` (ví dụ sau khi xoá namespace) | Tạo lại Secret theo [mục HTTPS](#https-tls-cho-cửa-vào); kiểm tra `kubectl -n v3m get secret gateway-tls` |
+| `curl` báo `self-signed certificate` | Cert tự ký, máy chưa tin | Dùng `curl --cacert certs/gateway.localhost.crt ...`, hoặc cho macOS tin cert ([mục HTTPS](#https-tls-cho-cửa-vào)) |
 | `argocd.localhost:8080` trả 404 | Chưa apply Ingress của Argo CD, hoặc `nginx-ingress` chưa Healthy | Làm lại [mục 4](#4-cài-nginx-ingress-controller-qua-argo-cd) và [mục 5](#5-mở-argo-cd-ui-qua-ingress) |
 | `argocd.localhost:8080` trả 502 | `argocd-server` chưa Ready, hoặc thiếu annotation `nginx.org/ssl-services` | `kubectl -n argocd get pods`; kiểm tra file `argocd/argocd-server-ingress.yaml` |
 | Application `OutOfSync` mãi không đổi | Commit chưa push lên GitHub | `git push`, rồi ép refresh (mục 7) |

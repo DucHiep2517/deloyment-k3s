@@ -32,7 +32,8 @@ sync-data-crm:
   # server.port trong application.yml
   containerPort: 8084
 
-# Zuul gateway: service duy nhất mở ra ngoài cluster, http://gateway.localhost:8080
+# Zuul gateway: service duy nhất mở ra ngoài cluster
+#   http://gateway.localhost:8080   và   https://gateway.localhost:8443
 gateway-server:
   image:
     repository: gateway-server
@@ -44,3 +45,13 @@ gateway-server:
   ingress:
     enabled: true
     host: gateway.localhost
+
+    # Cert tự ký trong Secret gateway-tls (namespace v3m), tạo bằng kubectl từ certs/ (không có trong Git).
+    # NGINX giải mã TLS rồi gọi vào gateway bằng HTTP như cũ, app không cần sửa gì.
+    tls:
+      secretName: gateway-tls
+
+    annotations:
+      # Giữ HTTP 8080 song song HTTPS. Bật redirect thì NGINX chuyển sang cổng 443,
+      # mà máy chỉ map 8443 -> 443 của cluster nên sẽ hỏng.
+      nginx.org/ssl-redirect: "false"
