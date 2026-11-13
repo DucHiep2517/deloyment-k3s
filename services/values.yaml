@@ -1,0 +1,45 @@
+# Cấu hình của mọi service trong Application spring-app.
+# Mỗi mục phải trùng alias trong Chart.yaml, và chỉ ghi những gì khác
+# mặc định của charts/spring-service/values.yaml.
+# Service mặc định là nội bộ (không có Ingress), gọi nhau qua http://<tên service> (cổng 80).
+
+# app-customer-service
+v3m-service:
+  replicaCount: 2
+
+  image:
+    repository: app-customer-service
+    tag: "1.0.0"
+
+  # server.port trong application.yml
+  containerPort: 9092
+
+  # Heap 60% của limit 2Gi (~1.2Gi), xem env JAVA_TOOL_OPTIONS trong chart
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+sync-data-crm:
+  image:
+    repository: sync-data-crm
+    tag: "1.0.0"
+
+  # server.port trong application.yml
+  containerPort: 8084
+
+# Zuul gateway: service duy nhất mở ra ngoài cluster, http://gateway.localhost:8080
+gateway-server:
+  image:
+    repository: gateway-server
+    tag: "1.0.1"
+
+  # server.port trong application.yml
+  containerPort: 9095
+
+  ingress:
+    enabled: true
+    host: gateway.localhost

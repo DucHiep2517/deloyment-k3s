@@ -1,10 +1,10 @@
 apiVersion: v2
 name: spring-service
-description: Helm chart dùng chung cho các service Spring Boot. Mỗi service có file values riêng trong services/<tên>/values.yaml
+description: Helm chart dùng chung cho các service Spring Boot. Được umbrella chart services/ gọi lại với alias = tên service
 type: application
 
 # Phiên bản của chart: tăng khi sửa template hoặc values.yaml mặc định
-version: 0.3.0
+version: 0.4.0
 
 # Chart dùng chung nên không gắn với app nào; mỗi service tự khai báo image.tag
 appVersion: "1.0.0"

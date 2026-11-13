@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: {{ include "spring-service.fullname" . }}
-          image: "{{ required "image.repository là bắt buộc trong services/<tên>/values.yaml" .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ required "image.repository là bắt buộc trong mục của service trong services/values.yaml" .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
 
           ports:

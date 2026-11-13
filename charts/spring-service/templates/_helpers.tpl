@@ -1,9 +1,9 @@
 {{/*
-Tên chung cho mọi tài nguyên của một service. Mặc định là release name,
-ApplicationSet đặt release name = tên thư mục trong services/ -> tên service = tên thư mục.
+Tên chung cho mọi tài nguyên của một service. Mặc định là tên chart: khi được gọi từ
+umbrella chart services/ với alias, Helm đặt tên chart = alias -> tên service = alias.
 */}}
 {{- define "spring-service.fullname" -}}
-{{- default .Release.Name .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- default .Chart.Name .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*

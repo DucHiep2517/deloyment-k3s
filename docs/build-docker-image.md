@@ -123,24 +123,25 @@ docker exec k3d-dev-cluster-agent-1 crictl images | grep app-customer-service
 
 ## 5. Deploy bằng Argo CD
 
-1. Sửa tag trong repo `deloyment-k3s`, file `services/v3m-service/values.yaml`:
+1. Sửa tag trong repo `deloyment-k3s`, file `services/values.yaml`, mục `v3m-service`:
 
    ```yaml
-   image:
-     repository: app-customer-service
-     tag: "1.0.1"
+   v3m-service:
+     image:
+       repository: app-customer-service
+       tag: "1.0.1"
    ```
 
 2. Commit + push lên `main`.
 3. Theo dõi rollout:
 
    ```bash
-   kubectl -n argocd get application v3m-service      # Synced / Healthy
+   kubectl -n argocd get application spring-app       # Synced / Healthy
    kubectl -n spring-app rollout status deploy/v3m-service
    kubectl -n spring-app get pods
    ```
 
-Service mới làm tương tự, chỉ khác tên image và thư mục trong `services/`. Xem mục "Thêm service mới" trong [k3d-argocd-setup.md](k3d-argocd-setup.md#thêm-service-mới).
+Service mới làm tương tự, chỉ khác tên image và mục trong `services/values.yaml`. Xem mục "Thêm service mới" trong [k3d-argocd-setup.md](k3d-argocd-setup.md#thêm-service-mới).
 
 ## Quy tắc đặt tag
 
@@ -163,7 +164,7 @@ mvn clean package -DskipTests \
   && sed 's#^FROM .*#FROM eclipse-temurin:11-jre#' Dockerfile \
      | docker build -f - -t app-customer-service:$TAG . \
   && k3d image import app-customer-service:$TAG -c dev-cluster \
-  && echo "Xong. Đặt image.tag: \"$TAG\" trong services/v3m-service/values.yaml rồi push."
+  && echo "Xong. Đặt v3m-service.image.tag: \"$TAG\" trong services/values.yaml rồi push."
 ```
 
 ## Dọn image cũ

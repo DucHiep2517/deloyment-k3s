@@ -12,7 +12,7 @@ Tài liệu này có 2 luồng:
 | Cluster | k3d `dev-cluster` (1 server + 2 agent), k3s `v1.35.5+k3s1`, kubectl context `k3d-dev-cluster` |
 | Ingress controller | NGINX Ingress Controller (bản F5/NGINX), IngressClass `nginx`. Traefik mặc định của k3s đã bị gỡ |
 | Argo CD | `v3.5.7`, namespace `argocd` |
-| Argo CD Applications | `nginx-ingress` (Helm chart từ `helm.nginx.com/stable`) và một Application cho mỗi thư mục `services/*`, do ApplicationSet `services` sinh ra (hiện có `v3m-service`, `sync-data-crm`, `gateway-server`, dùng chart chung `charts/spring-service` → namespace `spring-app`) |
+| Argo CD Applications | `nginx-ingress` (Helm chart từ `helm.nginx.com/stable`) và `spring-app` chứa mọi service (umbrella chart `services/`, hiện có `v3m-service`, `sync-data-crm`, `gateway-server`, cùng dùng chart chung `charts/spring-service` → namespace `spring-app`) |
 | Argo CD UI | <http://argocd.localhost:8080> |
 | Gateway | <http://gateway.localhost:8080>. Đây là service duy nhất mở ra ngoài, các service còn lại là nội bộ |
 
@@ -92,8 +92,8 @@ Kiểm tra Argo CD đã chạy lại:
 ```bash
 kubectl get applications -n argocd
 # NAME                   SYNC STATUS   HEALTH STATUS
-# v3m-service            Synced        Healthy
 # nginx-ingress          Synced        Healthy
+# spring-app             Synced        Healthy
 
 curl -s -o /dev/null -w '%{http_code}\n' http://argocd.localhost:8080/   # 200
 ```
@@ -190,16 +190,22 @@ Sau đó vào <http://argocd.localhost:8080>. Tên miền `*.localhost` tự tr�
 
 ## 6. Deploy các service
 
-Mọi service Spring Boot dùng chung chart `charts/spring-service`. Mỗi service là một thư mục trong `services/`, trong đó có `values.yaml` chỉ ghi những gì khác với mặc định của chart.
+Mọi service Spring Boot nằm chung **một** Argo CD Application tên `spring-app` (`argocd/spring-app-application.yaml`). Application này trỏ vào umbrella chart `services/`:
 
-ApplicationSet `services` (`argocd/services-appset.yaml`) quét `services/*` trên nhánh `main` và sinh một Argo CD Application cho mỗi thư mục:
+```
+services/
+├── Chart.yaml    # danh sách service: mỗi service là một dependency tới charts/spring-service, alias = tên service
+└── values.yaml   # cấu hình của mọi service, mỗi service một mục trùng alias
+charts/spring-service/   # chart chung, mỗi service dùng lại một lần
+```
 
-| Thư mục | Application / Deployment / Service | Cổng app | Ingress |
+Argo CD tự chạy `helm dependency build` để lấy `charts/spring-service`, rồi render tất cả service một lượt.
+
+| Service (alias) | Deployment / Service | Cổng app | Ingress |
 |---|---|---|---|
-| `services/gateway-server/` | `gateway-server` | `9095` | `gateway.localhost` |
-| `services/v3m-service/` | `v3m-service` | `9092` | không (nội bộ) |
-| `services/sync-data-crm/` | `sync-data-crm` | `8084` | không (nội bộ) |
-| `services/<tên>/` | `<tên>` | `containerPort` | mặc định không |
+| `gateway-server` | `gateway-server` | `9095` | `gateway.localhost` |
+| `v3m-service` | `v3m-service` | `9092` | không (nội bộ) |
+| `sync-data-crm` | `sync-data-crm` | `8084` | không (nội bộ) |
 
 Tất cả service nằm chung namespace `spring-app`. Mặc định service là **nội bộ**: chỉ có Deployment + Service, gọi được từ trong cluster qua `http://<tên service>` (cổng 80). Chỉ `gateway-server` bật Ingress để mở ra ngoài.
 
@@ -213,13 +219,13 @@ docker build -t app-customer-service:1.0.0 .
 k3d image import app-customer-service:1.0.0 -c dev-cluster
 ```
 
-Tạo ApplicationSet (một lần):
+Tạo Application (một lần):
 
 ```bash
-kubectl apply -f argocd/services-appset.yaml
+kubectl apply -f argocd/spring-app-application.yaml
 ```
 
-Các Application được sinh ra có sync policy `automated` + `prune` + `selfHeal`, nghĩa là:
+Application `spring-app` có sync policy `automated` + `prune` + `selfHeal`, nghĩa là:
 
 - Push lên `main` → Argo CD tự sync (mặc định kiểm tra khoảng 3 phút một lần).
 - Sửa tay bằng `kubectl edit/scale/delete` → Argo CD tự trả về như trong Git.
@@ -227,8 +233,7 @@ Các Application được sinh ra có sync policy `automated` + `prune` + `selfH
 Kiểm tra:
 
 ```bash
-kubectl get applicationset -n argocd services
-kubectl get applications -n argocd            # mọi service: Synced / Healthy
+kubectl get application -n argocd spring-app  # Synced / Healthy
 kubectl get pods,svc,ingress -n spring-app    # chỉ có Ingress gateway-server
 
 # Service mở ra ngoài (qua Ingress)
@@ -250,31 +255,45 @@ curl -i http://localhost:9092/actuator/health          # ở terminal khác
    k3d image import order-service:1.0.0 -c dev-cluster
    ```
 
-2. Tạo `services/order-service/values.yaml`. Tối thiểu chỉ cần:
+2. Thêm một dependency vào `services/Chart.yaml` (alias = tên service):
 
    ```yaml
-   image:
-     repository: order-service
-     tag: "1.0.0"
-   containerPort: 8080   # server.port của app
+     - name: spring-service
+       alias: order-service
+       version: ">=0.1.0"
+       repository: file://../charts/spring-service
    ```
 
-3. Commit + push lên `main`. Khoảng 3 phút sau Argo CD tạo Application `order-service`. Muốn có ngay thì ép ApplicationSet đọc lại Git:
+3. Thêm một mục cùng tên vào `services/values.yaml`. Tối thiểu chỉ cần:
 
-   ```bash
-   kubectl -n argocd annotate applicationset services \
-     argocd.argoproj.io/application-set-refresh=true --overwrite
+   ```yaml
+   order-service:
+     image:
+       repository: order-service
+       tag: "1.0.0"
+     containerPort: 8080   # server.port của app
    ```
 
-Service mới là nội bộ, các service khác gọi nó qua `http://order-service`. Chỉ khi thật sự cần mở ra ngoài mới thêm vào values:
+4. Commit + push lên `main`. Khoảng 3 phút sau Argo CD sync `spring-app` và tạo thêm `order-service`. Muốn có ngay thì xem lệnh ép refresh ở [mục 7](#7-kiểm-tra-nhanh).
 
-```yaml
-ingress:
-  enabled: true
-  host: order.localhost   # -> http://order.localhost:8080 ; bỏ trống = order-service.localhost
+Thiếu một trong hai bước 2 và 3 thì service không được tạo. Có mục trong `values.yaml` mà không có dependency thì Helm bỏ qua mục đó, không báo lỗi. Có dependency mà không có mục values thì chart báo lỗi `image.repository là bắt buộc`.
+
+Xem trước YAML sẽ được tạo ra:
+
+```bash
+helm dependency build services && helm template spring-app services --namespace spring-app
 ```
 
-Giá trị mặc định của chart (ghi đè trong `values.yaml` của service nếu cần):
+Service mới là nội bộ, các service khác gọi nó qua `http://order-service`. Chỉ khi thật sự cần mở ra ngoài mới thêm vào mục của nó:
+
+```yaml
+order-service:
+  ingress:
+    enabled: true
+    host: order.localhost   # -> http://order.localhost:8080 ; bỏ trống = order-service.localhost
+```
+
+Giá trị mặc định của chart (ghi đè trong mục của service trong `services/values.yaml` nếu cần):
 
 | Key | Mặc định |
 |---|---|
@@ -287,16 +306,18 @@ Giá trị mặc định của chart (ghi đè trong `values.yaml` của service
 
 Lưu ý:
 
-- Tên thư mục là tên của mọi resource, nên chỉ dùng chữ thường, số và dấu `-`. Đổi tên thư mục nghĩa là xoá service cũ và tạo service mới.
+- Alias là tên của mọi resource, nên chỉ dùng chữ thường, số và dấu `-`. Đổi alias nghĩa là xoá service cũ và tạo service mới.
 - Các service gọi nhau qua `http://<tên service>` (cổng 80, cùng namespace `spring-app`).
-- Xoá thư mục rồi push thì Argo CD xoá service đó khỏi cluster. Xoá ApplicationSet `services` thì **mọi** service bị xoá.
+- Xoá dependency (và mục values) rồi push thì Argo CD xoá service đó khỏi cluster.
+- Mọi service chung một Application: một service lỗi (sai cấu hình, không render được) thì cả `spring-app` báo lỗi và **không service nào** được sync cho tới khi sửa xong.
+- Application `spring-app` không có finalizer `resources-finalizer`, nên xoá Application chỉ bỏ quản lý, các service vẫn chạy.
 - 3 node k3d dùng chung RAM của Docker Desktop, dù mỗi node báo có 8 GiB riêng. Kubernetes không chặn khi tổng RAM vượt quá, nên phải tự theo dõi bằng `kubectl top nodes`.
 
 ### Ra phiên bản mới cho một service
 
 1. Build image với tag mới, ví dụ `app-customer-service:1.0.1`.
 2. `k3d image import app-customer-service:1.0.1 -c dev-cluster`
-3. Sửa `image.tag` trong `services/<tên>/values.yaml`.
+3. Sửa `image.tag` trong mục của service đó trong `services/values.yaml`.
 4. Commit + push lên `main`. Argo CD sẽ rollout.
 
 Không ghi đè cùng một tag: `pullPolicy` là `IfNotPresent`, node đã có tag cũ sẽ không lấy image mới.
@@ -314,7 +335,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://argocd.localhost:8080/   # 200
 Ép Argo CD đọc lại Git ngay (không chờ chu kỳ 3 phút):
 
 ```bash
-kubectl -n argocd annotate application v3m-service \
+kubectl -n argocd annotate application spring-app \
   argocd.argoproj.io/refresh=hard --overwrite
 ```
 

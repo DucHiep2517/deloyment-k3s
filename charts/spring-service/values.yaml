@@ -1,8 +1,8 @@
 # Giá trị mặc định cho mọi service dùng chart spring-service.
-# Đừng sửa file này cho một service cụ thể: ghi đè trong services/<tên>/values.yaml.
+# Đừng sửa file này cho một service cụ thể: ghi đè trong mục của service trong services/values.yaml.
 
 # Tên dùng cho Deployment, Service, Ingress và label "app".
-# Để trống = release name = tên thư mục trong services/ (ApplicationSet đặt sẵn).
+# Để trống = tên chart = alias của service trong services/Chart.yaml.
 # Lưu ý: đổi tên sẽ đổi selector của Deployment (trường không sửa được) -> phải xoá Deployment cũ.
 fullnameOverride: ""
 

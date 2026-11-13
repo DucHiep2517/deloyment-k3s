@@ -1,0 +1,26 @@
+apiVersion: v2
+name: spring-app
+description: Gộp mọi service Spring Boot vào một Argo CD Application (spring-app). Mỗi service là một dependency trỏ tới chart chung charts/spring-service.
+type: application
+
+# Phiên bản của umbrella chart: tăng khi thêm/bớt service
+version: 0.1.0
+
+# Mỗi service = một lần dùng lại chart spring-service với alias riêng.
+# alias = tên Deployment/Service/Ingress = tên mục cấu hình trong values.yaml.
+# Thêm service: thêm một khối dưới đây + một mục cùng tên trong values.yaml.
+dependencies:
+  - name: spring-service
+    alias: v3m-service
+    version: ">=0.1.0"
+    repository: file://../charts/spring-service
+
+  - name: spring-service
+    alias: sync-data-crm
+    version: ">=0.1.0"
+    repository: file://../charts/spring-service
+
+  - name: spring-service
+    alias: gateway-server
+    version: ">=0.1.0"
+    repository: file://../charts/spring-service
