@@ -1,5 +1,5 @@
 .DS_Store
 
-# Umbrella chart services/: helm dependency build tự sinh ra, Argo CD tự build lại
-services/charts/
-services/Chart.lock
+# Umbrella chart apps/<hệ thống>/: helm dependency build tự sinh ra, Argo CD tự build lại
+apps/*/charts/
+apps/*/Chart.lock

@@ -1,6 +1,6 @@
 # Build Docker image local và đưa vào cluster k3d
 
-Hướng dẫn build image cho một service Spring Boot trên máy, rồi nạp vào cluster k3d `dev-cluster` để Argo CD deploy. Ví dụ dùng `customer-service` (image `app-customer-service`, chạy trong cluster dưới tên `v3m-service`).
+Hướng dẫn build image cho một service Spring Boot trên máy, rồi nạp vào cluster k3d `dev-cluster` để Argo CD deploy. Ví dụ dùng `customer-service` (image `app-customer-service`, chạy trong cluster là service `app-customer-service` của hệ thống `v3m`). Service .NET xem thêm mục [Service .NET (hr-backend)](#service-net-hr-backend).
 
 ## Tổng quan
 
@@ -123,10 +123,10 @@ docker exec k3d-dev-cluster-agent-1 crictl images | grep app-customer-service
 
 ## 5. Deploy bằng Argo CD
 
-1. Sửa tag trong repo `deloyment-k3s`, file `services/values.yaml`, mục `v3m-service`:
+1. Sửa tag trong repo `deloyment-k3s`, file `apps/v3m/values.yaml`, mục `app-customer-service`:
 
    ```yaml
-   v3m-service:
+   app-customer-service:
      image:
        repository: app-customer-service
        tag: "1.0.1"
@@ -136,12 +136,37 @@ docker exec k3d-dev-cluster-agent-1 crictl images | grep app-customer-service
 3. Theo dõi rollout:
 
    ```bash
-   kubectl -n argocd get application spring-app       # Synced / Healthy
-   kubectl -n spring-app rollout status deploy/v3m-service
-   kubectl -n spring-app get pods
+   kubectl -n argocd get application v3m              # Synced / Healthy
+   kubectl -n v3m rollout status deploy/app-customer-service
+   kubectl -n v3m get pods
    ```
 
-Service mới làm tương tự, chỉ khác tên image và mục trong `services/values.yaml`. Xem mục "Thêm service mới" trong [k3d-argocd-setup.md](k3d-argocd-setup.md#thêm-service-mới).
+Service khác làm tương tự, chỉ khác tên image và file `apps/<hệ thống>/values.yaml`. Thêm service hoặc hệ thống mới xem [k3d-argocd-setup.md](k3d-argocd-setup.md#thêm-service-vào-một-hệ-thống).
+
+## Service .NET (hr-backend)
+
+`hr-backend` (ASP.NET Core 8) build hoàn toàn trong Docker (multi-stage: `dotnet restore/build/publish` chạy trong image SDK), không cần cài .NET trên máy. Có một điểm phải sửa lúc build: Dockerfile publish cứng cho chip x64:
+
+```dockerfile
+RUN dotnet publish ... -r linux-x64 ...
+```
+
+Máy và cluster là `arm64`, nên đổi sang `linux-arm64` khi build, cùng kiểu với cách thay base image ở trên (không sửa Dockerfile):
+
+```bash
+cd ~/Documents/Git3T/hr-backend
+TAG=$(git rev-parse --short HEAD)
+
+sed 's#-r linux-x64#-r linux-arm64#' Dockerfile \
+  | docker build -f - -t hr-be:$TAG . \
+  && k3d image import hr-be:$TAG -c dev-cluster
+```
+
+Rồi đặt `hr-be.image.tag` trong `apps/hr-backend/values.yaml` và push.
+
+- Base image `mcr.microsoft.com/dotnet/sdk:8.0` / `aspnet:8.0` là image công khai, có sẵn bản `arm64`.
+- Lần build đầu phải tải image SDK (vài trăm MB) và các gói NuGet nên mất vài phút.
+- Cấu hình (connection string DB...) nằm trong `appsettings*.json` đóng gói trong image. Chọn file theo biến `ASPNETCORE_ENVIRONMENT`, đặt trong `env` của `hr-be`.
 
 ## Quy tắc đặt tag
 
@@ -164,7 +189,7 @@ mvn clean package -DskipTests \
   && sed 's#^FROM .*#FROM eclipse-temurin:11-jre#' Dockerfile \
      | docker build -f - -t app-customer-service:$TAG . \
   && k3d image import app-customer-service:$TAG -c dev-cluster \
-  && echo "Xong. Đặt v3m-service.image.tag: \"$TAG\" trong services/values.yaml rồi push."
+  && echo "Xong. Đặt app-customer-service.image.tag: \"$TAG\" trong apps/v3m/values.yaml rồi push."
 ```
 
 ## Dọn image cũ

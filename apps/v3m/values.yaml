@@ -1,10 +1,11 @@
-# Cấu hình của mọi service trong Application spring-app.
+# Hệ thống v3m: Application v3m, namespace v3m.
 # Mỗi mục phải trùng alias trong Chart.yaml, và chỉ ghi những gì khác
 # mặc định của charts/spring-service/values.yaml.
 # Service mặc định là nội bộ (không có Ingress), gọi nhau qua http://<tên service> (cổng 80).
+# Hệ thống khác gọi vào qua http://<tên service>.v3m
 
 # app-customer-service
-v3m-service:
+app-customer-service:
   replicaCount: 2
 
   image:

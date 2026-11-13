@@ -1,0 +1,22 @@
+# Hệ thống questlab: Application questlab, namespace questlab.
+# Mỗi mục trùng alias trong Chart.yaml, chỉ ghi những gì khác mặc định của charts/spring-service/values.yaml.
+
+# Source: Git3T/BE/questlab-service (Spring Boot, Java 17).
+# Lưu ý: repo không có application.yml (bị .gitignore) và cluster không có config-server
+# (bootstrap.yml cần CONFIG_SERVER_URI) -> app chưa có cấu hình DB.
+questlab-service:
+  image:
+    repository: questlab-service
+    # CHƯA BUILD. Tag dự kiến = commit febb544 của questlab-service.
+    # Lưu ý khi build:
+    #   - pom ghim com.ttt.base:cache 0.0.1-20230324.021125-1, bản này không còn trên GitLab Maven
+    #   - base image registry.3tit.vn chỉ vào được trong mạng công ty -> có thể thay bằng eclipse-temurin:17-jre
+    tag: "febb544"
+
+  # Không có server.port -> Spring Boot mặc định 8080
+  containerPort: 8080
+
+  # Entry point của hệ thống questlab -> http://questlab.localhost:8080
+  ingress:
+    enabled: true
+    host: questlab.localhost

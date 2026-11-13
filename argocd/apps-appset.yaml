@@ -1,0 +1,53 @@
+# deloyment-k3s
+# Mỗi hệ thống là một umbrella chart trong apps/<hệ thống>/ (Chart.yaml + values.yaml).
+# ApplicationSet này sinh một Argo CD Application cho mỗi thư mục:
+#   apps/<hệ thống>/  ->  Application <hệ thống>  ->  namespace <hệ thống>
+# Thêm hệ thống: tạo thư mục mới + push. Không cần kubectl apply lại file này.
+# Áp dụng một lần: kubectl apply -f argocd/apps-appset.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+
+metadata:
+  name: apps
+  namespace: argocd
+
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  # Xoá ApplicationSet (hoặc một thư mục) không kéo theo xoá Deployment/Service của hệ thống:
+  # Application được sinh ra không mang finalizer resources-finalizer.
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+
+  generators:
+    - git:
+        repoURL: https://github.com/DucHiep2517/deloyment-k3s.git
+        revision: main
+        directories:
+          - path: apps/*
+
+  template:
+    metadata:
+      name: "{{ .path.basename }}"
+
+    spec:
+      project: default
+
+      source:
+        repoURL: https://github.com/DucHiep2517/deloyment-k3s.git
+        targetRevision: main
+        # Umbrella chart: Argo CD tự chạy helm dependency build để lấy charts/spring-service
+        path: "{{ .path.path }}"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .path.basename }}"
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+
+        syncOptions:
+          - CreateNamespace=true

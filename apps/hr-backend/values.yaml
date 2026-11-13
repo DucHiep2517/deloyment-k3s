@@ -1,0 +1,24 @@
+# Hệ thống hr-backend: Application hr-backend, namespace hr-backend.
+# Mỗi mục trùng alias trong Chart.yaml, chỉ ghi những gì khác mặc định của charts/spring-service/values.yaml.
+
+# Source: Git3T/hr-backend (CRM.Web.Host, .NET 8). Cấu hình (DB...) đóng gói trong appsettings*.json của image.
+hr-be:
+  image:
+    repository: hr-be
+    # CHƯA BUILD. Tag dự kiến = commit 422e1d8 của hr-backend.
+    # Dockerfile gốc publish "-r linux-x64"; cluster là arm64 nên khi build đổi sang linux-arm64:
+    #   sed 's#-r linux-x64#-r linux-arm64#' Dockerfile | docker build -f - -t hr-be:<tag> .
+    tag: "422e1d8"
+
+  # ASP.NET Core 8 lắng nghe 8080 (EXPOSE 8080 trong Dockerfile)
+  containerPort: 8080
+
+  # Thay hẳn env mặc định của chart: JAVA_TOOL_OPTIONS chỉ dành cho app Java
+  env:
+    - name: ASPNETCORE_ENVIRONMENT
+      value: Development   # giống docker-compose.yml của hr-backend
+
+  # Entry point của hệ thống hr-backend -> http://hr.localhost:8080
+  ingress:
+    enabled: true
+    host: hr.localhost

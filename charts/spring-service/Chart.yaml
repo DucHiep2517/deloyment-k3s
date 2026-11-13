@@ -1,6 +1,6 @@
 apiVersion: v2
 name: spring-service
-description: Helm chart dùng chung cho các service Spring Boot. Được umbrella chart services/ gọi lại với alias = tên service
+description: Helm chart dùng chung cho các service (Spring Boot, .NET...). Umbrella chart apps/<hệ thống>/ gọi lại với alias = tên service
 type: application
 
 # Phiên bản của chart: tăng khi sửa template hoặc values.yaml mặc định

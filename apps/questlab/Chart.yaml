@@ -1,0 +1,15 @@
+apiVersion: v2
+name: questlab
+description: Hệ thống questlab (Spring Boot). ApplicationSet apps tạo Application + namespace questlab.
+type: application
+
+# Phiên bản của umbrella chart: tăng khi thêm/bớt service
+version: 0.1.0
+
+# alias = tên Deployment/Service/Ingress = tên mục cấu hình trong values.yaml.
+# Thêm service: thêm một khối dưới đây + một mục cùng tên trong values.yaml.
+dependencies:
+  - name: spring-service
+    alias: questlab-service
+    version: ">=0.1.0"
+    repository: file://../../charts/spring-service

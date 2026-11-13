@@ -1,6 +1,6 @@
 {{/*
 Tên chung cho mọi tài nguyên của một service. Mặc định là tên chart: khi được gọi từ
-umbrella chart services/ với alias, Helm đặt tên chart = alias -> tên service = alias.
+umbrella chart apps/<hệ thống>/ với alias, Helm đặt tên chart = alias -> tên service = alias.
 */}}
 {{- define "spring-service.fullname" -}}
 {{- default .Chart.Name .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
