@@ -12,9 +12,9 @@ Tài liệu này có 2 luồng:
 | Cluster | k3d `dev-cluster` (1 server + 2 agent), k3s `v1.35.5+k3s1`, kubectl context `k3d-dev-cluster` |
 | Ingress controller | NGINX Ingress Controller (bản F5/NGINX), IngressClass `nginx`. Traefik mặc định của k3s đã bị gỡ |
 | Argo CD | `v3.5.7`, namespace `argocd` |
-| Argo CD Applications | `nginx-ingress` (Helm chart từ `helm.nginx.com/stable`) và một Application cho mỗi thư mục `services/*`, do ApplicationSet `services` sinh ra (hiện có `v3m-service`, dùng chart chung `charts/spring-service` → namespace `spring-app`) |
+| Argo CD Applications | `nginx-ingress` (Helm chart từ `helm.nginx.com/stable`) và một Application cho mỗi thư mục `services/*`, do ApplicationSet `services` sinh ra (hiện có `v3m-service`, `sync-data-crm`, `gateway-server`, dùng chart chung `charts/spring-service` → namespace `spring-app`) |
 | Argo CD UI | <http://argocd.localhost:8080> |
-| App | <http://v3m.localhost:8080> |
+| Gateway | <http://gateway.localhost:8080>. Đây là service duy nhất mở ra ngoài, các service còn lại là nội bộ |
 
 Đường đi của request:
 
@@ -22,9 +22,11 @@ Tài liệu này có 2 luồng:
 Trình duyệt :8080
   -> k3d-dev-cluster-serverlb :80        (container Docker, map cổng ra máy)
   -> nginx-ingress-controller            (namespace nginx-ingress)
-       Host argocd.localhost -> svc/argocd-server:443   (namespace argocd)
-       Host v3m.localhost    -> svc/v3m-service:80      (namespace spring-app)
+       Host argocd.localhost  -> svc/argocd-server:443   (namespace argocd)
+       Host gateway.localhost -> svc/gateway-server:80   (namespace spring-app)
 ```
+
+Các service khác (`v3m-service`, `sync-data-crm`…) không có Ingress, chỉ gọi được từ trong cluster qua `http://<tên service>`, ví dụ gateway gọi vào.
 
 Argo CD đọc manifest từ GitHub (`https://github.com/DucHiep2517/deloyment-k3s.git`, nhánh `main`), không đọc từ máy local. Sửa chart xong phải **commit + push** thì cluster mới đổi.
 
@@ -192,14 +194,16 @@ Mọi service Spring Boot dùng chung chart `charts/spring-service`. Mỗi servi
 
 ApplicationSet `services` (`argocd/services-appset.yaml`) quét `services/*` trên nhánh `main` và sinh một Argo CD Application cho mỗi thư mục:
 
-| Thư mục | Application | Deployment / Service / Ingress | Host |
+| Thư mục | Application / Deployment / Service | Cổng app | Ingress |
 |---|---|---|---|
-| `services/v3m-service/` | `v3m-service` | `v3m-service` | `v3m.localhost` (khai báo riêng) |
-| `services/<tên>/` | `<tên>` | `<tên>` | `<tên>.localhost` (mặc định) |
+| `services/gateway-server/` | `gateway-server` | `9095` | `gateway.localhost` |
+| `services/v3m-service/` | `v3m-service` | `9092` | không (nội bộ) |
+| `services/sync-data-crm/` | `sync-data-crm` | `8084` | không (nội bộ) |
+| `services/<tên>/` | `<tên>` | `containerPort` | mặc định không |
 
-Tất cả service nằm chung namespace `spring-app` và dùng chung NGINX Ingress Controller.
+Tất cả service nằm chung namespace `spring-app`. Mặc định service là **nội bộ**: chỉ có Deployment + Service, gọi được từ trong cluster qua `http://<tên service>` (cổng 80). Chỉ `gateway-server` bật Ingress để mở ra ngoài.
 
-Image được build local, không nằm trên registry nào, nên phải nạp thẳng vào các node của k3d trước:
+Image được build local, không nằm trên registry nào, nên phải nạp thẳng vào các node của k3d trước. Chi tiết cách build (jar, base image, đặt tag) xem [build-docker-image.md](build-docker-image.md).
 
 ```bash
 # Build trong thư mục source code của service (repo khác)
@@ -224,12 +228,18 @@ Kiểm tra:
 
 ```bash
 kubectl get applicationset -n argocd services
-kubectl get applications -n argocd            # v3m-service: Synced / Healthy
-kubectl get pods,ingress -n spring-app
-curl -i http://v3m.localhost:8080/
+kubectl get applications -n argocd            # mọi service: Synced / Healthy
+kubectl get pods,svc,ingress -n spring-app    # chỉ có Ingress gateway-server
+
+# Service mở ra ngoài (qua Ingress)
+curl -i http://gateway.localhost:8080/actuator/health
+
+# Service nội bộ: port-forward Service về máy rồi gọi
+kubectl -n spring-app port-forward svc/v3m-service 9092:80
+curl -i http://localhost:9092/actuator/health          # ở terminal khác
 ```
 
-`curl` trả về response của app (ví dụ `401` nếu endpoint cần đăng nhập) là đã thông. Nếu nhận `404` từ nginx thì Ingress chưa khớp host.
+`curl` trả về response của app là đã thông. Gọi `gateway.localhost` mà nhận `404` từ nginx thì Ingress chưa khớp host.
 
 ### Thêm service mới
 
@@ -249,7 +259,20 @@ curl -i http://v3m.localhost:8080/
    containerPort: 8080   # server.port của app
    ```
 
-3. Commit + push lên `main`. Khoảng 3 phút sau Argo CD tạo Application `order-service`, truy cập ở <http://order-service.localhost:8080>.
+3. Commit + push lên `main`. Khoảng 3 phút sau Argo CD tạo Application `order-service`. Muốn có ngay thì ép ApplicationSet đọc lại Git:
+
+   ```bash
+   kubectl -n argocd annotate applicationset services \
+     argocd.argoproj.io/application-set-refresh=true --overwrite
+   ```
+
+Service mới là nội bộ, các service khác gọi nó qua `http://order-service`. Chỉ khi thật sự cần mở ra ngoài mới thêm vào values:
+
+```yaml
+ingress:
+  enabled: true
+  host: order.localhost   # -> http://order.localhost:8080 ; bỏ trống = order-service.localhost
+```
 
 Giá trị mặc định của chart (ghi đè trong `values.yaml` của service nếu cần):
 
@@ -260,7 +283,7 @@ Giá trị mặc định của chart (ghi đè trong `values.yaml` của service
 | `resources` | request `100m / 512Mi`, limit `1 CPU / 1Gi` |
 | `env` | `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60.0` |
 | `startupProbe` / `readinessProbe` / `livenessProbe` | Tắt. Ví dụ bật với Actuator có sẵn trong `charts/spring-service/values.yaml` |
-| `ingress.host` | `<tên service>.localhost` |
+| `ingress.enabled` | `false` (nội bộ). Bật lên thì `ingress.host` mặc định là `<tên service>.localhost` |
 
 Lưu ý:
 
