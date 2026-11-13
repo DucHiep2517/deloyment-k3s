@@ -33,7 +33,7 @@ sync-data-crm:
   containerPort: 8084
 
 # Zuul gateway: service duy nhất mở ra ngoài cluster
-#   http://gateway.localhost:8080   và   https://gateway.localhost:8443
+#   https://gateway.localhost (cổng 443, hoặc 8443)   và   http://gateway.localhost:8080
 gateway-server:
   image:
     repository: gateway-server
@@ -41,6 +41,20 @@ gateway-server:
 
   # server.port trong application.yml
   containerPort: 9095
+
+  # application.yml trong image trỏ theo môi trường cũ (localhost:9092, v3m-...-service).
+  # SPRING_APPLICATION_JSON được Spring Boot ưu tiên hơn application.yml -> đổi sang tên Service trong cluster,
+  # không cần build lại image. Ghi đè env thì list mặc định bị thay hẳn -> phải ghi lại JAVA_TOOL_OPTIONS.
+  env:
+    - name: JAVA_TOOL_OPTIONS
+      value: "-XX:MaxRAMPercentage=60.0"
+    - name: SPRING_APPLICATION_JSON
+      value: >-
+        {"service":{"gateway":{"authorization":{"url":"http://app-customer-service/auth/check"}}},
+        "zuul":{"routes":{
+        "app":{"url":"http://app-customer-service"},
+        "api":{"url":"http://app-customer-service"},
+        "sync-data-crm":{"url":"http://sync-data-crm"}}}}
 
   ingress:
     enabled: true
@@ -52,6 +66,6 @@ gateway-server:
       secretName: gateway-tls
 
     annotations:
-      # Giữ HTTP 8080 song song HTTPS. Bật redirect thì NGINX chuyển sang cổng 443,
-      # mà máy chỉ map 8443 -> 443 của cluster nên sẽ hỏng.
+      # Giữ HTTP 8080 song song HTTPS (không tự chuyển sang https://).
+      # Đổi thành "true" nếu muốn ép mọi request HTTP sang https://gateway.localhost (cổng 443).
       nginx.org/ssl-redirect: "false"

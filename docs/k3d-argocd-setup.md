@@ -14,7 +14,7 @@ Tài liệu này có 2 luồng:
 | Argo CD | `v3.5.7`, namespace `argocd` |
 | Argo CD Applications | `nginx-ingress` (Helm chart từ `helm.nginx.com/stable`) và một Application cho mỗi hệ thống trong `apps/` (`v3m`, `hr-backend`, `questlab`), do ApplicationSet `apps` sinh ra |
 | Argo CD UI | <http://argocd.localhost:8080> |
-| Cửa vào các hệ thống | `v3m`: <http://gateway.localhost:8080> và <https://gateway.localhost:8443> (TLS, [xem mục HTTPS](#https-tls-cho-cửa-vào)), `hr-backend`: <http://hr.localhost:8080>, `questlab`: <http://questlab.localhost:8080> |
+| Cửa vào các hệ thống | `v3m`: <https://gateway.localhost> (TLS, [xem mục HTTPS](#https-tls-cho-cửa-vào); cổng 8443 cũng được) và <http://gateway.localhost:8080>, `hr-backend`: <http://hr.localhost:8080>, `questlab`: <http://questlab.localhost:8080> |
 
 Cấu trúc repo:
 
@@ -35,7 +35,7 @@ deloyment-k3s/
 Đường đi của request:
 
 ```
-Trình duyệt :8080 (HTTP) / :8443 (HTTPS)
+Trình duyệt :8080 (HTTP) / :443 hoặc :8443 (HTTPS)
   -> k3d-dev-cluster-serverlb :80 / :443 (container Docker, map cổng ra máy)
   -> nginx-ingress-controller            (namespace nginx-ingress; HTTPS được giải mã tại đây)
        Host argocd.localhost   -> svc/argocd-server:443      (namespace argocd)
@@ -131,6 +131,7 @@ k3d cluster create dev-cluster \
   --servers 1 \
   --agents 2 \
   -p "8080:80@loadbalancer" \
+  -p "443:443@loadbalancer" \
   -p "8443:443@loadbalancer" \
   --k3s-arg "--disable=traefik@server:0"
 ```
@@ -139,7 +140,15 @@ k3d cluster create dev-cluster \
 |---|---|
 | `--servers 1 --agents 2` | 1 node control-plane, 2 node worker |
 | `-p "8080:80@loadbalancer"` | Cổng 8080 của máy → cổng 80 trong cluster (nơi NGINX Ingress lắng nghe) |
-| `-p "8443:443@loadbalancer"` | Tương tự cho HTTPS |
+| `-p "443:443@loadbalancer"` | Cổng 443 của máy → HTTPS của NGINX, để gọi `https://<host>` không cần ghi cổng |
+| `-p "8443:443@loadbalancer"` | Thêm một cổng HTTPS dự phòng (`https://<host>:8443`) |
+
+Cluster đang chạy muốn map thêm cổng thì dùng `k3d cluster edit` (container loadbalancer được tạo lại, mất kết nối vài giây). Cổng 443 của cluster hiện tại được thêm theo cách này:
+
+```bash
+k3d cluster edit dev-cluster --port-add "443:443@loadbalancer"
+docker port k3d-dev-cluster-serverlb      # xem các cổng đang map
+```
 | `--k3s-arg "--disable=traefik@server:0"` | Không cài Traefik vì cluster dùng NGINX Ingress Controller |
 
 k3d tự thêm context `k3d-dev-cluster` vào `~/.kube/config` và chuyển sang context đó. Kiểm tra:
@@ -417,7 +426,8 @@ Lưu ý:
 `gateway-server` nhận cả HTTP và HTTPS:
 
 ```
-https://gateway.localhost:8443 -> NGINX giải mã TLS (cert trong Secret gateway-tls) -> http://gateway-server:80 -> pod :9095
+https://gateway.localhost      -> NGINX giải mã TLS (cert trong Secret gateway-tls) -> http://gateway-server:80 -> pod :9095
+https://gateway.localhost:8443 -> (như trên, cổng dự phòng)
 http://gateway.localhost:8080  -> NGINX                                            -> http://gateway-server:80 -> pod :9095
 ```
 
@@ -436,7 +446,9 @@ gateway-server:
       nginx.org/ssl-redirect: "false"    # giữ HTTP 8080 song song HTTPS
 ```
 
-Không bật chuyển hướng HTTP sang HTTPS: NGINX sẽ chuyển sang `https://gateway.localhost` (cổng 443), mà máy chỉ map cổng `8443` vào cổng 443 của cluster nên sẽ không vào được.
+`https://gateway.localhost` (không ghi cổng) cần cổng 443 của máy được map vào cluster, xem [mục 2](#2-tạo-cluster-mới). Thiếu mapping này thì trình duyệt báo không kết nối được (connection refused), chưa tới bước TLS.
+
+`ssl-redirect: "false"` giữ HTTP 8080 chạy song song. Đổi thành `"true"` thì mọi request HTTP bị chuyển sang `https://gateway.localhost`.
 
 **Cert và Secret.** Cert hiện tại là cert tự ký, tạo bằng openssl, có hạn tới 02/2029. File nằm trong `certs/` ở máy local. Thư mục này có trong `.gitignore` vì chứa private key, nên **không có trên GitHub**. Secret cũng tạo bằng `kubectl`, không nằm trong Git, nên Argo CD không quản lý và không xoá nó:
 
@@ -463,10 +475,10 @@ Kiểm tra:
 
 ```bash
 # Tin đúng cert tự ký này (không cần -k)
-curl --cacert certs/gateway.localhost.crt https://gateway.localhost:8443/actuator/health
+curl --cacert certs/gateway.localhost.crt https://gateway.localhost/actuator/health
 
 # Xem cert NGINX đang trả về
-openssl s_client -connect localhost:8443 -servername gateway.localhost </dev/null 2>/dev/null \
+openssl s_client -connect localhost:443 -servername gateway.localhost </dev/null 2>/dev/null \
   | openssl x509 -noout -subject -dates
 ```
 
@@ -478,6 +490,63 @@ sudo security add-trusted-cert -d -r trustRoot \
 ```
 
 Bật HTTPS cho cửa vào của hệ thống khác (ví dụ `hr.localhost`) làm tương tự: tạo cert với `CN`/`subjectAltName` là host đó, tạo Secret trong namespace của hệ thống, rồi thêm `ingress.tls.secretName` và annotation vào mục của service.
+
+### Gọi API qua gateway
+
+Khi gọi một API, đối chiếu 3 chỗ:
+
+| Cần biết | Xem ở đâu |
+|---|---|
+| Gọi vào host nào | `ingress.host` trong `apps/<hệ thống>/values.yaml` (hoặc `kubectl get ingress -A`). v3m: `https://gateway.localhost` |
+| Path nào tới service nào | Mục `zuul.routes` trong `application.yml` của `gateway-server` (source `Git3T/BE/gateway-server`), cộng phần ghi đè trong `apps/v3m/values.yaml` (bên dưới) |
+| Endpoint, tham số, body | Swagger của từng service (bên dưới) |
+
+**Route.** Route nào không ghi `path` thì Zuul dùng `/<tên route>/**` và **cắt bỏ tiền tố** trước khi chuyển tiếp. Các route đang dùng được trong cluster:
+
+| Gọi qua gateway | Chuyển tới |
+|---|---|
+| `https://gateway.localhost/app/<path>` | `http://app-customer-service/<path>` |
+| `https://gateway.localhost/api/<path>` | `http://app-customer-service/<path>` |
+| `https://gateway.localhost/sync-data-crm/<path>` | `http://sync-data-crm/<path>` |
+| `https://gateway.localhost/crm/<path>` | `https://hr-hr-backend-uat.mobifi.vn/<path>` (bên ngoài) |
+
+Các route còn lại (`auth`, `file`, `v3m`, `cdp`…) trỏ tới service chưa deploy trong cluster.
+
+**Ghi đè cấu hình gateway.** `application.yml` trong image gateway trỏ theo môi trường cũ (`localhost:9092`, `v3m-...-service`), trong pod gateway không có gì ở đó. `apps/v3m/values.yaml` ghi đè bằng biến `SPRING_APPLICATION_JSON`, Spring Boot ưu tiên biến này hơn `application.yml`, nên không cần build lại image:
+
+```yaml
+gateway-server:
+  env:
+    - name: JAVA_TOOL_OPTIONS              # ghi đè env thì phải ghi lại biến này
+      value: "-XX:MaxRAMPercentage=60.0"
+    - name: SPRING_APPLICATION_JSON
+      value: >-
+        {"service":{"gateway":{"authorization":{"url":"http://app-customer-service/auth/check"}}},
+        "zuul":{"routes":{"app":{"url":"http://app-customer-service"}, ...}}}
+```
+
+- `service.gateway.authorization.url`: gateway gọi URL này để kiểm tra token của mọi request không nằm trong whitelist.
+- `zuul.routes.<route>.url`: đích của từng route. Thêm service mới vào gateway thì thêm một route ở đây.
+
+**Đăng nhập.** Path không cần token nằm trong `service.gateway.api.whitelist` của `application.yml` gateway. Các API còn lại cần header `Authorization: Bearer <JWT>`, JWT lấy từ API đăng nhập của customer-service:
+
+```bash
+curl -X POST https://gateway.localhost/app/auth/login \
+  --cacert certs/gateway.localhost.crt \
+  -H 'Content-Type: application/json' \
+  -d '{"phone": "<số điện thoại>", "password": "<mật khẩu>"}'
+```
+
+Gateway báo lỗi trong **body**, HTTP status vẫn là 200: `{"httpCode":401,"errorCode":"030003","message":"UnAuthorizedException"}` nghĩa là chưa có token hoặc token sai.
+
+**Swagger.** `app-customer-service` và `sync-data-crm` có Swagger UI. Hai service này là nội bộ, nên port-forward về máy rồi mở:
+
+```bash
+kubectl -n v3m port-forward svc/app-customer-service 9092:80   # http://localhost:9092/swagger-ui.html
+kubectl -n v3m port-forward svc/sync-data-crm 8084:80          # http://localhost:8084/swagger-ui.html
+```
+
+Trên Swagger UI bấm **Authorize**, nhập `Bearer <JWT>` để gọi các API cần đăng nhập. Path trên Swagger là path của service. Gọi qua gateway thì thêm tiền tố route, ví dụ `/auth/login` thành `/app/auth/login`.
 
 ### Ra phiên bản mới cho một service
 
@@ -524,6 +593,8 @@ kubectl -n argocd annotate applicationset apps \
 | Application báo `image.repository là bắt buộc` | Có dependency trong `Chart.yaml` mà thiếu mục cùng tên trong `values.yaml` (thường do gõ sai alias) | Đối chiếu alias với tên mục trong `values.yaml` |
 | Application `spring-app` báo `app path does not exist` | Cấu trúc cũ, thư mục `services/` đã bị xoá | Làm theo mục [Chuyển cluster từ cấu trúc cũ](#chuyển-cluster-từ-cấu-trúc-cũ-spring-app-sang-apps) |
 | `https://gateway.localhost:8443` lỗi handshake (`unrecognized name`, `SSL_ERROR...`) | Ingress chưa có `tls`, hoặc thiếu Secret `gateway-tls` trong namespace `v3m` (ví dụ sau khi xoá namespace) | Tạo lại Secret theo [mục HTTPS](#https-tls-cho-cửa-vào); kiểm tra `kubectl -n v3m get secret gateway-tls` |
+| `https://gateway.localhost` báo connection refused (cổng 8443 thì vào được) | Cổng 443 của máy chưa map vào cluster | `k3d cluster edit dev-cluster --port-add "443:443@loadbalancer"` ([mục 2](#2-tạo-cluster-mới)) |
+| Gọi qua gateway trả 500 `Connect to localhost:9092 ... Connection refused` | Route của gateway còn trỏ theo môi trường cũ | Kiểm tra `SPRING_APPLICATION_JSON` của `gateway-server` trong `apps/v3m/values.yaml` ([mục Gọi API qua gateway](#gọi-api-qua-gateway)) |
 | `curl` báo `self-signed certificate` | Cert tự ký, máy chưa tin | Dùng `curl --cacert certs/gateway.localhost.crt ...`, hoặc cho macOS tin cert ([mục HTTPS](#https-tls-cho-cửa-vào)) |
 | `argocd.localhost:8080` trả 404 | Chưa apply Ingress của Argo CD, hoặc `nginx-ingress` chưa Healthy | Làm lại [mục 4](#4-cài-nginx-ingress-controller-qua-argo-cd) và [mục 5](#5-mở-argo-cd-ui-qua-ingress) |
 | `argocd.localhost:8080` trả 502 | `argocd-server` chưa Ready, hoặc thiếu annotation `nginx.org/ssl-services` | `kubectl -n argocd get pods`; kiểm tra file `argocd/argocd-server-ingress.yaml` |
