@@ -1,0 +1,15 @@
+# gateway-server (Zuul gateway, Spring Boot).
+# Chỉ ghi những gì khác mặc định của charts/spring-service/values.yaml.
+# Tên thư mục (gateway-server) = tên Deployment/Service/Ingress = tên Argo CD Application.
+# Service duy nhất mở ra ngoài cluster: http://gateway.localhost:8080
+
+image:
+  repository: gateway-server
+  tag: "1.0.1"
+
+# server.port trong application.yml
+containerPort: 9095
+
+ingress:
+  enabled: true
+  host: gateway.localhost

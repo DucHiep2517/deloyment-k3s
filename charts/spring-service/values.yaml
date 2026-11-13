@@ -53,8 +53,10 @@ service:
   type: ClusterIP
   port: 80
 
+# Mặc định service là nội bộ: chỉ gọi được trong cluster qua http://<tên service>.
+# Chỉ service cần mở ra ngoài (hiện là gateway-server) mới đặt ingress.enabled: true.
 ingress:
-  enabled: true
+  enabled: false
   # NGINX Ingress Controller (cài bởi argocd/nginx-ingress-application.yaml)
   className: nginx
   # Để trống = <tên service>.localhost, truy cập qua http://<tên service>.localhost:8080
