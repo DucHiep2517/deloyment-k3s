@@ -1,7 +1,13 @@
 # deloyment-k3s
-# Mở giao diện Argo CD ra ngoài qua NGINX Ingress: http://argocd.localhost:8080
-# (cổng 8080 của máy = cổng 80 của k3d loadbalancer -> nginx-ingress-controller).
+# Mở giao diện Argo CD ra ngoài qua NGINX Ingress:
+#   https://argocd.localhost (cổng 443, hoặc 8443)  và  http://argocd.localhost:8080
+# (cổng 8080/443/8443 của máy -> k3d loadbalancer -> nginx-ingress-controller).
 # Áp dụng một lần: kubectl apply -f argocd/argocd-server-ingress.yaml
+#
+# HTTPS cần Secret argocd-ingress-tls (cert tự ký, không có trong Git), tạo bằng:
+#   kubectl -n argocd create secret tls argocd-ingress-tls \
+#     --cert=certs/argocd.localhost.crt --key=certs/argocd.localhost.key
+# Không đặt tên argocd-server-tls: Argo CD dùng tên đó làm cert riêng của argocd-server.
 #
 # argocd-server vẫn giữ TLS (không bật server.insecure), nên cách cũ vẫn dùng được:
 #   kubectl port-forward svc/argocd-server -n argocd 8081:443   -> https://localhost:8081
@@ -19,9 +25,18 @@ metadata:
     nginx.org/ssl-services: "argocd-server"
     # UI nhận trạng thái app qua stream, tắt buffer để cập nhật ngay
     nginx.org/proxy-buffering: "false"
+    # Giữ http://argocd.localhost:8080 song song HTTPS (không tự chuyển sang https://)
+    nginx.org/ssl-redirect: "false"
 
 spec:
   ingressClassName: nginx
+
+  # HTTPS từ trình duyệt: NGINX giải mã bằng cert trong Secret argocd-ingress-tls,
+  # rồi lại gọi argocd-server bằng HTTPS (ssl-services ở trên)
+  tls:
+    - hosts:
+        - argocd.localhost
+      secretName: argocd-ingress-tls
 
   rules:
     - host: argocd.localhost

@@ -13,7 +13,7 @@ Tài liệu này có 2 luồng:
 | Ingress controller | NGINX Ingress Controller (bản F5/NGINX), IngressClass `nginx`. Traefik mặc định của k3s đã bị gỡ |
 | Argo CD | `v3.5.7`, namespace `argocd` |
 | Argo CD Applications | `nginx-ingress` (Helm chart từ `helm.nginx.com/stable`) và một Application cho mỗi hệ thống trong `apps/` (`v3m`, `hr-backend`, `questlab`), do ApplicationSet `apps` sinh ra |
-| Argo CD UI | <http://argocd.localhost:8080> |
+| Argo CD UI | <https://argocd.localhost> (cert tự ký, cổng 8443 cũng được) và <http://argocd.localhost:8080> |
 | Cửa vào các hệ thống | `v3m`: <https://gateway.localhost> (TLS, [xem mục HTTPS](#https-tls-cho-cửa-vào); cổng 8443 cũng được) và <http://gateway.localhost:8080>, `hr-backend`: <http://hr.localhost:8080>, `questlab`: <http://questlab.localhost:8080> |
 
 Cấu trúc repo:
@@ -210,10 +210,28 @@ kubectl get svc -n nginx-ingress                   # nginx-ingress-controller, T
 ## 5. Mở Argo CD UI qua Ingress
 
 ```bash
+# Cert tự ký cho argocd.localhost (lưu trong certs/, đã gitignore; bỏ qua nếu đã có)
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes \
+  -keyout certs/argocd.localhost.key -out certs/argocd.localhost.crt \
+  -subj "/CN=argocd.localhost" -addext "subjectAltName=DNS:argocd.localhost"
+
+# Secret TLS cho Ingress. KHÔNG đặt tên argocd-server-tls: Argo CD dùng tên đó làm cert riêng của argocd-server
+kubectl -n argocd create secret tls argocd-ingress-tls \
+  --cert=certs/argocd.localhost.crt --key=certs/argocd.localhost.key
+
 kubectl apply -f argocd/argocd-server-ingress.yaml
 ```
 
-Sau đó vào <http://argocd.localhost:8080>. Tên miền `*.localhost` tự trỏ về `127.0.0.1` nên không cần sửa `/etc/hosts`.
+Sau đó vào <https://argocd.localhost> (trình duyệt báo "Not secure" vì cert tự ký, bấm bỏ qua) hoặc <http://argocd.localhost:8080>. Tên miền `*.localhost` tự trỏ về `127.0.0.1` nên không cần sửa `/etc/hosts`. `https://` không ghi cổng cần cổng 443 của máy được map vào cluster ([mục 2](#2-tạo-cluster-mới)).
+
+Kiểm tra:
+
+```bash
+curl --cacert certs/argocd.localhost.crt https://argocd.localhost/api/version   # {"Version":"v3.5.7"}
+```
+
+File này nằm trong `argocd/` nên Argo CD không tự áp dụng: sửa xong phải chạy lại `kubectl apply -f argocd/argocd-server-ingress.yaml`.
 
 `argocd-server` chỉ phục vụ HTTPS, nên Ingress có annotation `nginx.org/ssl-services: "argocd-server"` để NGINX gọi vào bằng HTTPS. Thiếu annotation này sẽ bị lỗi redirect hoặc 502. Cách port-forward ở mục 3 vẫn dùng được song song.
 
@@ -596,6 +614,8 @@ kubectl -n argocd annotate applicationset apps \
 | `https://gateway.localhost` báo connection refused (cổng 8443 thì vào được) | Cổng 443 của máy chưa map vào cluster | `k3d cluster edit dev-cluster --port-add "443:443@loadbalancer"` ([mục 2](#2-tạo-cluster-mới)) |
 | Gọi qua gateway trả 500 `Connect to localhost:9092 ... Connection refused` | Route của gateway còn trỏ theo môi trường cũ | Kiểm tra `SPRING_APPLICATION_JSON` của `gateway-server` trong `apps/v3m/values.yaml` ([mục Gọi API qua gateway](#gọi-api-qua-gateway)) |
 | `curl` báo `self-signed certificate` | Cert tự ký, máy chưa tin | Dùng `curl --cacert certs/gateway.localhost.crt ...`, hoặc cho macOS tin cert ([mục HTTPS](#https-tls-cho-cửa-vào)) |
+| `https://argocd.localhost` lỗi bắt tay TLS, còn `http://argocd.localhost:8080` vẫn vào được | Thiếu Secret `argocd-ingress-tls` (dựng cluster mới…), hoặc Ingress của Argo CD chưa có `tls` | Tạo Secret và `kubectl apply -f argocd/argocd-server-ingress.yaml` ([mục 5](#5-mở-argo-cd-ui-qua-ingress)) |
+| Mở `http://argocd.localhost` (không cổng) báo không kết nối được | Cổng 80 của máy không map vào cluster | Dùng `https://argocd.localhost` hoặc `http://argocd.localhost:8080` |
 | `argocd.localhost:8080` trả 404 | Chưa apply Ingress của Argo CD, hoặc `nginx-ingress` chưa Healthy | Làm lại [mục 4](#4-cài-nginx-ingress-controller-qua-argo-cd) và [mục 5](#5-mở-argo-cd-ui-qua-ingress) |
 | `argocd.localhost:8080` trả 502 | `argocd-server` chưa Ready, hoặc thiếu annotation `nginx.org/ssl-services` | `kubectl -n argocd get pods`; kiểm tra file `argocd/argocd-server-ingress.yaml` |
 | Application `OutOfSync` mãi không đổi | Commit chưa push lên GitHub | `git push`, rồi ép refresh (mục 7) |
